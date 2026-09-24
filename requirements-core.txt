@@ -1,0 +1,8 @@
+# minimal environment for the submitted method (local-phase tracker) and its evaluation/tests
+# tested: python 3.9 (numpy 1.26.3, scipy 1.13.1, matplotlib 3.9.4) and python 3.11 (numpy 2.4)
+numpy>=1.26
+scipy>=1.11
+matplotlib>=3.8
+imageio-ffmpeg>=0.6   # static ffmpeg binary; or set FFMPEG_BIN / have ffmpeg on PATH
+pytest>=8.4
+# optional: torch>=2.4 for --device cuda (batched torch.fft backend, identical numbers, 10x faster)

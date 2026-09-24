@@ -1,4 +1,3 @@
-# Displacement-Measurement-IC-SHM-2026
 # Sub-pixel displacement of a vibrating cable from hovering-UAV video
 
 Measuring the vibration of a stay-cable model from a DJI Mavic 3 Pro hovering 2 m away — a ±1.5 px, 0.9 mm-per-pixel signal buried under the drone's own motion — with a **local-phase tracker** on a complex steerable pyramid (after Chen et al. 2015), validated against a 10 kHz laser displacement sensor. **Result: 0.0746 mm RMSE, r = 0.980, over the full 60 s at 50 Hz — better than a scene-adapted refinement CNN (0.076), ZNCC template matching (0.085) and the CoTracker3 foundation tracker (0.115) on the same pipeline. The tracker's own noise is 0.006 mm; what remains is the scene (depth parallax of the drone's jitter, rolling shutter), and a dense 40-tile background ego-motion field makes it *worse* (0.261 mm) because the background is not at the target's depth.**

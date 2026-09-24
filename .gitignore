@@ -1,0 +1,38 @@
+# competition data (1.2 GB video, LDS xlsx) and the 30 GB decoded-frame caches: never commit
+data/
+!data/data_notes.txt
+
+# PBS logs, scratch
+logs/
+*.OU
+*.ER
+
+# python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# copyrighted reference PDFs (keep the plan, drop the papers)
+reference_paper/*.pdf
+
+# large / regenerable results (keep small evaluation npz, csv, md, png)
+results/tracks_*.npz
+results/egomotion*.npz
+results/*.mp4
+
+# local editor notes
+**/CLAUDE.md
+
+# draft letter with superseded numbers, local backups
+paper/
+*.bak
+RELEASE.md
+
+# not for publication / regenerable duplicates
+.DS_Store
+cv_entry_icshm.md
+"UAV competition.pdf"
+UAV competition.pdf
+SPEC_phase_displacement.md
+submission/
+figures/*.pdf

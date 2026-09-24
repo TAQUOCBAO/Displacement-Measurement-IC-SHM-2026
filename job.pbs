@@ -1,0 +1,79 @@
+#!/bin/bash
+#PBS -N uav_phase
+#PBS -l select=1:ncpus=8:mem=64gb
+#PBS -l walltime=04:00:00
+#PBS -W group_list=x-ccast-prj-cle
+#PBS -q default
+#PBS -j oe
+#PBS -o logs/
+# Usage:  qsub -v STAGE=<stage> job.pbs      (mkdir -p logs first)
+#   STAGE=cache    build data/cache ROI memmap (one-time, ~10 min)
+#   STAGE=cache4k  build data/cache/full_gray.npy (25 GB, N_PART parallel decoders; qsub -l select=1:ncpus=16:mem=64gb)
+#   STAGE=unit     pytest incl. slow tests
+#   STAGE=phase    run_phase (single ref) + run_pipeline phase   [G1]
+#   STAGE=synth    run_synth_benchmark E4 (+ --compress)         [G0]
+#   STAGE=ego      run_egomotion (full-4K pass) + phase_dense    [G2-G4]
+#   STAGE=ego_gpu  same, dense phase pass on CUDA (qsub -q gpus ... -v STAGE=ego_gpu)
+#   STAGE=ego_par  same, tile pass as N_PART parallel workers (ngpus=N_PART)
+#   STAGE=magnify  run_magnify
+#   STAGE=repro    fresh venv from requirements-core.txt, tests + 300-frame pipeline (competition check)
+#   STAGE=figs     make_manuscript_figures.py -> figures/
+#   STAGE=submit   make_submission.py ${SUB_KEY:-phase_3-14} -> submission/
+#   STAGE=ablate   run_phase_ablations
+#   STAGE=all      everything above in order
+# GPU stages: check free GPUs first (bash scripts/gpu_avail.sh), then
+#   qsub -q gpus -l select=1:ncpus=8:ngpus=1:mem=64gb -v STAGE=phase_gpu job.pbs   (ngpus=2-4 for heavy stages)
+set -euo pipefail
+cd "$PBS_O_WORKDIR"
+export PYTHONUNBUFFERED=1
+exec > >(tee -a "logs/${PBS_JOBID%%.*}.live.log") 2>&1   # readable while the job runs
+module load ffmpeg/4.2.2-gcc-sr35
+PY=${PY:-python3}                       # numpy/scipy branch
+PY_TORCH=${PY_TORCH:-/mmfs1/projects/chau.le/Computer_Vision_FM/miniconda3/envs/ice_cv_du/bin/python}   # torch (zoom>1 upscale, CoTracker)
+export PYTHONPATH=src OMP_NUM_THREADS=${NCPUS:-8}
+STAGE=${STAGE:-phase}
+run() { echo "== $*"; "$@"; }
+stage_cache()   { run $PY -c "from uav_disp import config, video_io as v; a=v.cached_roi_gray(config.ROI); print(a.shape)"; }
+stage_cache4k() { run $PY -c "from uav_disp import video_io as v; a=v.cached_full_gray(workers=${N_PART:-4}); print(a.shape)"; }
+stage_unit()    { run $PY -m pytest tests -q; }
+stage_phase()   { run $PY scripts/run_phase.py; run $PY scripts/run_pipeline.py phase; run $PY scripts/run_pipeline.py phase --band 3-14; }
+stage_phase_gpu() { run $PY_TORCH scripts/run_phase.py --device cuda; run $PY scripts/run_pipeline.py phase; run $PY scripts/run_pipeline.py phase --band 3-14; }
+stage_ablate_gpu() { PHASE_DEVICE=cuda run $PY_TORCH scripts/run_phase_ablations.py; }
+stage_synth()   { run $PY_TORCH scripts/run_synth_benchmark.py E4; run $PY_TORCH scripts/run_synth_benchmark.py E4 --compress; }
+stage_ego()     { run $PY scripts/run_egomotion.py; run $PY scripts/run_phase.py --ego dense; run $PY scripts/run_pipeline.py phase_dense; run $PY scripts/run_pipeline.py phase_dense --band 3-14; }
+stage_ego_gpu() { run $PY_TORCH scripts/run_egomotion.py --device cuda; run $PY_TORCH scripts/run_phase.py --ego dense --device cuda; run $PY scripts/run_pipeline.py phase_dense; run $PY scripts/run_pipeline.py phase_dense --band 3-14; }
+# 4K tile pass split into N_PART decode workers, one GPU each (decode-bound: ~N_PART x faster; 2 GPUs queue fast)
+#   qsub -q gpus -l select=1:ncpus=16:ngpus=2:mem=96gb -v STAGE=ego_par,N_PART=2 job.pbs
+stage_ego_par() {
+  N_PART=${N_PART:-2}
+  for i in $(seq 0 $((N_PART-1))); do
+    CUDA_VISIBLE_DEVICES=$i $PY_TORCH scripts/run_egomotion.py --device cuda --part $i/$N_PART > "logs/${PBS_JOBID%%.*}.part$i.log" 2>&1 &
+  done
+  wait
+  run $PY scripts/run_egomotion.py --merge $N_PART
+  run $PY_TORCH scripts/run_phase.py --ego dense --device cuda
+  run $PY scripts/run_pipeline.py phase_dense; run $PY scripts/run_pipeline.py phase_dense --band 3-14
+}
+# fresh-environment reproducibility check: venv from requirements-core.txt only, tests + 300-frame pipeline
+stage_repro() {
+  V=${REPRO_VENV:-/tmp/uav_repro_venv_$$}
+  run python3 -m venv "$V"; run "$V/bin/pip" install -q --upgrade pip
+  run "$V/bin/pip" install -q -r requirements-core.txt
+  run "$V/bin/python" -c "import numpy,scipy,matplotlib,imageio_ffmpeg;print(numpy.__version__,scipy.__version__,imageio_ffmpeg.get_ffmpeg_exe())"
+  run "$V/bin/python" -m pytest tests -q -m "not slow"
+  run "$V/bin/python" scripts/run_zncc.py 300
+  run "$V/bin/python" scripts/run_phase.py --n-frames 300
+  run "$V/bin/python" inference/measure_displacement.py data/Video.MP4 --n-frames 300 --out results/repro_slice.csv
+  run "$V/bin/python" scripts/check_repro.py
+  rm -rf "$V"
+}
+stage_cmd()     { run $PY $CMD; }
+stage_infer()   { run $PY_TORCH inference/measure_displacement.py data/Video.MP4 --device cuda ${INFER_ARGS:-} --out results/inference_check.csv; }
+stage_figs()    { run $PY scripts/make_manuscript_figures.py; }
+stage_submit()  { run $PY scripts/make_submission.py ${SUB_KEY:-phase_3-14}; }
+stage_magnify() { run $PY scripts/run_magnify.py ${MAG_ARGS:-}; }
+stage_ablate()  { run $PY scripts/run_phase_ablations.py; }
+case "$STAGE" in
+  all) for s in cache unit synth phase ego magnify ablate; do stage_$s; done ;;
+  *)   stage_$STAGE ;;
+esac

@@ -1,0 +1,13 @@
+# tested with: python 3.9 (numpy 1.26.3, scipy 1.13.1, matplotlib 3.9.4, pandas 2.3.3)
+#          and python 3.11 (numpy 2.4, torch 2.4.1+cu121) -- the phase branch runs on either
+numpy>=1.26
+scipy>=1.11
+pandas>=2.0         # LDS xlsx loading
+matplotlib>=3.8
+torch>=2.4          # CoTracker3 tracker (MPS/CUDA/CPU)
+imageio>=2.34       # torch.hub co-tracker dependency
+einops>=0.7         # torch.hub co-tracker dependency
+tqdm>=4.66          # torch.hub co-tracker dependency
+imageio-ffmpeg>=0.6  # static ffmpeg WITH libx264 (cluster module ffmpeg lacks it); or set FFMPEG_BIN
+pytest>=8.4         # test harness (tests/)
+# ffmpeg is resolved by uav_disp.video_io.ffmpeg_exe(): $FFMPEG_BIN > imageio-ffmpeg > PATH
